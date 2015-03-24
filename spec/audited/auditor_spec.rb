@@ -155,6 +155,11 @@ describe Audited::Auditor do
       expect { @user.update_attribute :activated, '1' }.to_not change( Audited::Audit, :count )
     end
 
+    it "should not save if the changed value is blank" do
+      @user.update_attribute :username, nil
+      expect { @user.update_attribute :username, '' }.to_not change( Audited::Audit, :count )
+    end
+
     describe "with no dirty changes" do
       it "does not create an audit if the record is not changed" do
         expect {
@@ -199,10 +204,10 @@ describe Audited::Auditor do
     end
 
     it "should be able to reconstruct a destroyed record without history" do
-      @user.audits.delete_all
+      Audited::Audit.delete_all
       @user.destroy
 
-      revision = @user.audits.first.revision
+      revision = Audited::Audit.first.revision
       expect(revision.name).to eq(@user.name)
     end
 
@@ -235,6 +240,18 @@ describe Audited::Auditor do
       }.to_not raise_error
 
       expect( user.audits ).to be_empty
+    end
+  end
+
+  describe "on destroy in trasaction" do
+    let(:user) { create_user }
+
+    it "should save an audit" do
+      expect {
+        user.transaction { user.destroy }
+      }.to change( Audited::Audit, :count )
+
+      expect(user.audits.size).to eq(2)
     end
   end
 
@@ -601,7 +618,7 @@ describe Audited::Auditor do
         Models::ActiveRecord::Company.auditing_enabled = false
         company.update_attributes name: 'STI auditors'
         Models::ActiveRecord::Company.auditing_enabled = true
-      }.to_not change( Audited.audit_class, :count )
+      }.to_not change( Audited::Audit, :count )
     end
   end
 end

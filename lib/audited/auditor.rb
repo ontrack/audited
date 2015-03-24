@@ -184,7 +184,7 @@ module Audited
           end
 
         collection.inject({}) do |changes, (attr, old_value)|
-          changes[attr] = [old_value, self[attr]]
+          changes[attr] = [old_value, self[attr]] if old_value.presence != self[attr].presence
           changes
         end
       end
@@ -221,7 +221,16 @@ module Audited
       def write_audit(attrs)
         attrs[:associated] = send(audit_associated_with) unless audit_associated_with.nil?
         self.audit_comment = nil
-        run_callbacks(:audit)  { audits.create(attrs) } if auditing_enabled
+
+        if auditing_enabled
+          run_callbacks(:audit) do
+            if attrs[:action] == 'destroy'
+              Audited::Audit.new(attrs).tap { |x| x.auditable = self }.save
+            else
+              self.audits.create(attrs)
+            end
+          end
+        end
       end
 
       def require_comment
