@@ -16,10 +16,9 @@ Gem::Specification.new do |gem|
   gem.license     = 'MIT'
 
   gem.add_dependency 'audited', Audited::VERSION
-  gem.add_dependency 'activerecord', '~> 4.0'
+  gem.add_dependency 'activerecord', '~> 4.1'
 
   gem.files         = `git ls-files lib`.split($\).grep(/(active_?record|generators)/)
   gem.files         << 'LICENSE'
   gem.require_paths = ['lib']
 end
-

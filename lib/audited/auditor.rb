@@ -203,7 +203,16 @@ module Audited
       def write_audit(attrs)
         attrs[:associated] = self.send(audit_associated_with) unless audit_associated_with.nil?
         self.audit_comment = nil
-        run_callbacks(:audit)  { self.audits.create(attrs) } if auditing_enabled
+
+        if auditing_enabled
+          run_callbacks(:audit) do
+            if attrs[:action] == 'destroy'
+              Audited.audit_class.new(attrs).tap { |x| x.auditable = self }.save
+            else
+              self.audits.create(attrs)
+            end
+          end
+        end
       end
 
       def require_comment

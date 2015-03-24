@@ -180,10 +180,10 @@ describe Audited::Auditor, :adapter => :active_record do
     end
 
     it "should be able to reconstruct a destroyed record without history" do
-      @user.audits.delete_all
+      Audited.audit_class.delete_all
       @user.destroy
 
-      revision = @user.audits.first.revision
+      revision = Audited.audit_class.first.revision
       expect(revision.name).to eq(@user.name)
     end
 
