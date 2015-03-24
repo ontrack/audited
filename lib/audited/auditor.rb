@@ -272,11 +272,15 @@ module Audited
         self.audit_comment = nil
 
         if auditing_enabled
-          run_callbacks(:audit) {
-            audit = audits.create(attrs)
-            combine_audits_if_needed if attrs[:action] != 'create'
-            audit
-          }
+          run_callbacks(:audit) do
+            if attrs[:action] == 'destroy'
+              Audited::Audit.new(attrs).tap { |x| x.auditable = self }.save
+            else
+              audit = audits.create(attrs)
+              combine_audits_if_needed if attrs[:action] != 'create'
+              audit
+            end
+          end
         end
       end
 
