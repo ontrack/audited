@@ -219,6 +219,18 @@ describe Audited::Auditor, :adapter => :active_record do
     end
   end
 
+  describe "on destroy in trasaction" do
+    let(:user) { create_active_record_user }
+
+    it "should save an audit" do
+      expect {
+        user.transaction { user.destroy }
+      }.to change( Audited.audit_class, :count )
+
+      expect(user.audits.size).to eq(2)
+    end
+  end
+
   describe "associated with" do
     let(:owner) { Models::ActiveRecord::Owner.create(:name => 'Models::ActiveRecord::Owner') }
     let(:owned_company) { Models::ActiveRecord::OwnedCompany.create!(:name => 'The auditors', :owner => owner) }
