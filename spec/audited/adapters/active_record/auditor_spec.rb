@@ -136,6 +136,11 @@ describe Audited::Auditor, :adapter => :active_record do
       expect { @user.update_attribute :activated, '1' }.to_not change( Audited.audit_class, :count )
     end
 
+    it "should not save if the changed value is blank" do
+      @user = create_active_record_user( :name => 'Brandon', :username => nil )
+      expect { @user.update_attribute :username, '' }.to_not change( Audited.audit_class, :count )
+    end
+
     describe "with no dirty changes" do
       it "does not create an audit if the record is not changed" do
         expect {
