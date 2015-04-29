@@ -224,6 +224,23 @@ describe Audited::Auditor, :adapter => :active_record do
     end
   end
 
+  describe "destroy" do
+    let(:user) { create_active_record_user }
+
+    before do
+      user.audits.delete_all
+    end
+
+    it "does something" do
+      expect {
+        user.destroy
+        user.destroy
+      }.to change( Audited.audit_class, :count )
+
+      expect(user.audits.reload.size).to eq(1)
+    end
+  end
+
   describe "on destroy in trasaction" do
     let(:user) { create_active_record_user }
 
