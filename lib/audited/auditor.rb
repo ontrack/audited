@@ -166,7 +166,7 @@ module Audited
 
       def audited_changes
         changed_attributes.except(*non_audited_columns).inject({}) do |changes,(attr, old_value)|
-          changes[attr] = [old_value, self[attr]] unless self[attr].blank?
+          changes[attr] = [old_value, self[attr]] if old_value.presence != self[attr].presence
           changes
         end
       end
