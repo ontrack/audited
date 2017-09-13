@@ -178,10 +178,7 @@ module Audited
       private
 
       def audited_changes
-        changed_attributes.except(*non_audited_columns).inject({}) do |changes, (attr, old_value)|
-          changes[attr] = [old_value, self[attr]] if old_value.presence != self[attr].presence
-          changes
-        end
+        changes_to_save.except(*non_audited_columns).reject { |_, v| v.last.blank? }
       end
 
       def audits_to(version = nil)
