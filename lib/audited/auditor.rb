@@ -215,7 +215,7 @@ module Audited
           end
 
         filtered_changes = normalize_enum_changes(filtered_changes)
-        filtered_changes.to_hash
+        filtered_changes.to_hash.reject { |_, (old_value, new_value)| old_value.presence == new_value.presence }
       end
 
       def normalize_enum_changes(changes)
