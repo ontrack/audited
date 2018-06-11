@@ -178,7 +178,7 @@ module Audited
       private
 
       def audited_changes
-        changes_to_save.except(*non_audited_columns).reject { |_, v| v.last.blank? }
+        changes_to_save.except(*non_audited_columns).reject { |_, (old_value, new_value)| old_value.presence == new_value.presence }
       end
 
       def audits_to(version = nil)
