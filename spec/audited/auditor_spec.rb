@@ -202,7 +202,7 @@ describe Audited::Auditor do
 
         def non_column_attr=(val)
           attribute_will_change!("non_column_attr")
-          @non_column_attr = val
+          self[:non_column_attr] = val
         end
       end
 
@@ -362,6 +362,11 @@ describe Audited::Auditor do
     it "should not save if the changed value is blank" do
       @user.update_attribute :username, nil
       expect { @user.update_attribute :username, '' }.to_not change( Audited::Audit, :count )
+    end
+
+    it "should save if the changed value is blank" do
+      @user.update_attributes name: ''
+      expect(@user.audits.last.audited_changes).to eq({ 'name' => ['Brandon', ''] })
     end
 
     describe "with no dirty changes" do
