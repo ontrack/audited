@@ -67,9 +67,6 @@ module Audited
           before_destroy :require_comment if audited_options[:on].include?(:destroy)
         end
 
-        has_many :audits, -> { order(version: :asc) }, as: :auditable, class_name: Audited.audit_class.name, inverse_of: :auditable
-        Audited.audit_class.audited_class_names << to_s
-
         after_create :audit_create    if audited_options[:on].include?(:create)
         before_update :audit_update   if audited_options[:on].include?(:update)
         before_destroy :audit_destroy if audited_options[:on].include?(:destroy)
@@ -79,13 +76,12 @@ module Audited
         # audit.
         define_callbacks :audit
         set_callback :audit, :after, :after_audit, if: lambda { respond_to?(:after_audit, true) }
-        set_callback :audit, :around, :around_audit, if: lambda { respond_to?(:around_audit, true) }
 
         enable_auditing
       end
 
       def has_associated_audits
-        has_many :associated_audits, as: :associated, class_name: Audited.audit_class.name
+        # no-op
       end
     end
 
@@ -115,92 +111,10 @@ module Audited
         self.class.without_auditing(&block)
       end
 
-      # Gets an array of the revisions available
-      #
-      #   user.revisions.each do |revision|
-      #     user.name
-      #     user.version
-      #   end
-      #
-      def revisions(from_version = 1)
-        return [] unless audits.from_version(from_version).exists?
-
-        all_audits = audits.select([:audited_changes, :version]).to_a
-        targeted_audits = all_audits.select { |audit| audit.version >= from_version }
-
-        previous_attributes = reconstruct_attributes(all_audits - targeted_audits)
-
-        targeted_audits.map do |audit|
-          previous_attributes.merge!(audit.new_attributes)
-          revision_with(previous_attributes.merge!(version: audit.version))
-        end
-      end
-
-      # Get a specific revision specified by the version number, or +:previous+
-      # Returns nil for versions greater than revisions count
-      def revision(version)
-        if version == :previous || self.audits.last.version >= version
-          revision_with Audited.audit_class.reconstruct_attributes(audits_to(version))
-        end
-      end
-
-      # Find the oldest revision recorded prior to the date/time provided.
-      def revision_at(date_or_time)
-        audits = self.audits.up_until(date_or_time)
-        revision_with Audited.audit_class.reconstruct_attributes(audits) unless audits.empty?
-      end
-
       # List of attributes that are audited.
       def audited_attributes
         audited_attributes = attributes.except(*self.class.non_audited_columns)
         normalize_enum_changes(audited_attributes)
-      end
-
-      # Returns a list combined of record audits and associated audits.
-      def own_and_associated_audits
-        Audited.audit_class.unscoped
-        .where('(auditable_type = :type AND auditable_id = :id) OR (associated_type = :type AND associated_id = :id)',
-          type: self.class.name, id: id)
-        .order(created_at: :desc)
-      end
-
-      # Combine multiple audits into one.
-      def combine_audits(audits_to_combine)
-        combine_target = audits_to_combine.last
-        combine_target.audited_changes = audits_to_combine.pluck(:audited_changes).reduce(&:merge)
-        combine_target.comment = "#{combine_target.comment}\nThis audit is the result of multiple audits being combined."
-
-        transaction do
-          combine_target.save!
-          audits_to_combine.unscope(:limit).where("version < ?", combine_target.version).delete_all
-        end
-      end
-
-      protected
-
-      def revision_with(attributes)
-        dup.tap do |revision|
-          revision.id = id
-          revision.send :instance_variable_set, '@new_record', destroyed?
-          revision.send :instance_variable_set, '@persisted', !destroyed?
-          revision.send :instance_variable_set, '@readonly', false
-          revision.send :instance_variable_set, '@destroyed', false
-          revision.send :instance_variable_set, '@_destroyed', false
-          revision.send :instance_variable_set, '@marked_for_destruction', false
-          Audited.audit_class.assign_revision_attributes(revision, attributes)
-
-          # Remove any association proxies so that they will be recreated
-          # and reference the correct object for this revision. The only way
-          # to determine if an instance variable is a proxy object is to
-          # see if it responds to certain methods, as it forwards almost
-          # everything to its target.
-          revision.instance_variables.each do |ivar|
-            proxy = revision.instance_variable_get ivar
-            if !proxy.nil? && proxy.respond_to?(:proxy_respond_to?)
-              revision.instance_variable_set ivar, nil
-            end
-          end
-        end
       end
 
       private
@@ -238,18 +152,6 @@ module Audited
         Gem::Version.new(Rails::VERSION::STRING) < Gem::Version.new(rails_version)
       end
 
-      def audits_to(version = nil)
-        if version == :previous
-          version = if self.audit_version
-                      self.audit_version - 1
-                    else
-                      previous = audits.descending.offset(1).first
-                      previous ? previous.version : 1
-                    end
-        end
-        audits.to_version(version)
-      end
-
       def audit_create
         write_audit(action: 'create', audited_changes: audited_attributes,
                     comment: audit_comment)
@@ -276,9 +178,11 @@ module Audited
             if attrs[:action] == 'destroy'
               Audited::Audit.new(attrs).tap { |x| x.auditable = self }.save
             else
-              audit = audits.create(attrs)
-              combine_audits_if_needed if attrs[:action] != 'create'
-              audit
+              Audited::Audit.new(
+                auditable_id: id,
+                auditable_type: self.class.base_class.name,
+                **attrs
+              ).save
             end
           end
         end
@@ -294,14 +198,6 @@ module Audited
         auditing_enabled &&
           ((audited_options[:on].include?(:create) && self.new_record?) ||
           (audited_options[:on].include?(:update) && self.persisted? && self.changed?))
-      end
-
-      def combine_audits_if_needed
-        max_audits = audited_options[:max_audits]
-        if max_audits && (extra_count = audits.count - max_audits) > 0
-          audits_to_combine = audits.limit(extra_count + 1)
-          combine_audits(audits_to_combine)
-        end
       end
 
       def require_comment
@@ -328,12 +224,6 @@ module Audited
         return send(condition) == matching if respond_to?(condition.to_sym, true)
 
         true
-      end
-
-      def reconstruct_attributes(audits)
-        attributes = {}
-        audits.each { |audit| attributes.merge!(audit.new_attributes) }
-        attributes
       end
     end # InstanceMethods
 
@@ -402,8 +292,6 @@ module Audited
         audited_options[:on] = [:create, :update, :destroy] if audited_options[:on].empty?
         audited_options[:only] = Array.wrap(audited_options[:only]).map(&:to_s)
         audited_options[:except] = Array.wrap(audited_options[:except]).map(&:to_s)
-        max_audits = audited_options[:max_audits] || Audited.max_audits
-        audited_options[:max_audits] = Integer(max_audits).abs if max_audits
       end
 
       def calculate_non_audited_columns

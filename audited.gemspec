@@ -18,12 +18,17 @@ Gem::Specification.new do |gem|
   gem.required_ruby_version = '>= 2.3.0'
 
   gem.add_dependency 'activerecord', '>= 4.2', '< 5.3'
+  gem.add_dependency 'virtus', '~> 1.0.5'
 
   gem.add_development_dependency 'appraisal'
   gem.add_development_dependency 'rails', '>= 4.2', '< 5.3'
   gem.add_development_dependency 'rubocop', '~> 0.54.0'
   gem.add_development_dependency 'rspec-rails', '~> 3.5'
   gem.add_development_dependency 'single_cov'
+  gem.add_development_dependency 'pry-rails'
+  gem.add_development_dependency 'pry-theme'
+  gem.add_development_dependency 'pry-pretty-numeric'
+  gem.add_development_dependency 'pry-highlight'
 
   # JRuby support for the test ENV
   if defined?(JRUBY_VERSION)

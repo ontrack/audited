@@ -2,11 +2,11 @@ require 'active_record'
 
 module Audited
   class << self
-    attr_accessor :ignored_attributes, :current_user_method, :max_audits, :auditing_enabled
+    attr_accessor :ignored_attributes, :current_user_method, :auditing_enabled
     attr_writer :audit_class
 
     def audit_class
-      @audit_class ||= Audit
+      @audit_class ||= ::Audited::Audit
     end
 
     def store
@@ -25,7 +25,6 @@ module Audited
 end
 
 require 'audited/auditor'
-require 'audited/audit'
 
 ::ActiveRecord::Base.send :include, Audited::Auditor
 
