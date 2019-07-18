@@ -8,11 +8,9 @@ if Bundler.definition.dependencies.map(&:name).include?('protected_attributes')
 end
 require 'rails_app/config/environment'
 require 'rspec/rails'
-require 'virtus'
 require 'audited'
 require 'audited_spec_helpers'
 require 'support/active_record/models'
-require 'support/audited/audit'
 
 SPEC_ROOT = Pathname.new(File.expand_path('../', __FILE__))
 

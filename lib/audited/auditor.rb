@@ -175,15 +175,7 @@ module Audited
 
         if auditing_enabled
           run_callbacks(:audit) do
-            if attrs[:action] == 'destroy'
-              Audited::Audit.new(attrs).tap { |x| x.auditable = self }.save
-            else
-              Audited::Audit.new(
-                auditable_id: id,
-                auditable_type: self.class.base_class.name,
-                **attrs
-              ).save
-            end
+            Audited.audit_class.new(attrs).tap { |x| x.auditable = self }.save
           end
         end
       end
