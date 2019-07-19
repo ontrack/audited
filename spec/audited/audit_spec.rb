@@ -193,4 +193,60 @@ describe Audited::Audit do
       expect(Audited.store[:audited_user]).to be_nil
     end
   end
+
+  describe "truncate audited_changes value" do
+    before do
+      Models::ActiveRecord::Company.audited_options[:truncate] = {
+        long_col1: 5_000,
+        long_col2: 10_000,
+        long_col3: 10_000,
+      }
+    end
+
+    it "saves an audit" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: hash_including(
+            "long_col1" => "x" * 3_000 + "\n" * 2_000,
+            "long_col2" => "x" * 10_000,
+            "long_col3" => "x" * 10_000,
+          )
+        )
+      )
+
+      object = Models::ActiveRecord::Company.new(
+        long_col1: "x" * 3_000 + "\n" * 3_000 + "x",
+        long_col2: "x" * 60_000 + "\n" * 3_000 + "x",
+        long_col3: "x" * 60_000 + "\n" * 3_000 + "x"
+      )
+      object.save!
+    end
+
+    context "array value" do
+      it "saves an audit" do
+        allow_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+          hash_including(
+            audited_changes: hash_including(
+              "long_col1" => "x" * 1_000 + "\n" * 2_000 + "x",
+            )
+          )
+        )
+        object = Models::ActiveRecord::Company.create!(
+          long_col1: "x" * 1_000 + "\n" * 2_000 + "x",
+        )
+
+        expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+          hash_including(
+            audited_changes: hash_including(
+              "long_col1" => ["x" * 1_000 + "\n" * 1_500, "x" * 500 + "\n" * 1_999 + "x"],
+            )
+          )
+        )
+
+        object.update!(
+          long_col1: "x" * 500 + "\n" * 1_999 + "x",
+        )
+      end
+    end
+  end
 end
