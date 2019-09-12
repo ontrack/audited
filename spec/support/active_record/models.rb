@@ -14,11 +14,6 @@ module Models
       end
     end
 
-    class UserExceptPassword < ::ActiveRecord::Base
-      self.table_name = :users
-      audited except: :password
-    end
-
     class UserOnlyPassword < ::ActiveRecord::Base
       self.table_name = :users
       attribute :non_column_attr if Rails.version >= '5.1'
@@ -51,12 +46,6 @@ module Models
       attr_accessible :name, :username, :password if respond_to?(:attr_accessible)
     end
 
-    class AccessibleBeforeDeclarationUser < ::ActiveRecord::Base
-      self.table_name = :users
-      attr_accessible :name, :username, :password if respond_to?(:attr_accessible) # declare attr_accessible before calling aaa
-      audited
-    end
-
     class NoAttributeProtectionUser < ::ActiveRecord::Base
       self.table_name = :users
       audited
@@ -65,22 +54,13 @@ module Models
     class UserWithAfterAudit < ::ActiveRecord::Base
       self.table_name = :users
       audited
-      attr_accessor :bogus_attr, :around_attr
+      attr_accessor :bogus_attr
 
       private
 
       def after_audit
         self.bogus_attr = "do something"
       end
-
-      def around_audit
-        self.around_attr = yield
-      end
-    end
-
-    class MaxAuditsUser < ::ActiveRecord::Base
-      self.table_name = :users
-      audited max_audits: 5
     end
 
     class Company < ::ActiveRecord::Base

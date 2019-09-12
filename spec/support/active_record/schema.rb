@@ -47,15 +47,9 @@ ActiveRecord::Schema.define do
     t.column :name, :string
     t.column :owner_id, :integer
     t.column :type, :string
-  end
-
-  create_table :authors do |t|
-    t.column :name, :string
-  end
-
-  create_table :books do |t|
-    t.column :authord_id, :integer
-    t.column :title, :string
+    t.column :long_col1, :text
+    t.column :long_col2, :text
+    t.column :long_col3, :text
   end
 
   create_table :audits do |t|

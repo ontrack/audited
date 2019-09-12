@@ -38,49 +38,54 @@ describe AuditsController do
   describe "POST audit" do
     it "should audit user" do
       controller.send(:current_user=, user)
-      expect {
-        post :create
-      }.to change( Audited::Audit, :count )
 
-      expect(controller.company.audits.last.user).to eq(user)
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(user_id: user.id)
+      )
+
+      post :create
     end
 
     it "does not audit when method is not found" do
       controller.send(:current_user=, user)
       Audited.current_user_method = :nope
-      expect {
-        post :create
-      }.to change( Audited::Audit, :count )
-      expect(controller.company.audits.last.user).to eq(nil)
+
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(user_id: nil)
+      )
+
+      post :create
     end
 
     it "should support custom users for sweepers" do
       controller.send(:custom_user=, user)
       Audited.current_user_method = :custom_user
 
-      expect {
-        post :create
-      }.to change( Audited::Audit, :count )
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call)
 
-      expect(controller.company.audits.last.user).to eq(user)
+      post :create
     end
 
     it "should record the remote address responsible for the change" do
       request.env['REMOTE_ADDR'] = "1.2.3.4"
       controller.send(:current_user=, user)
 
-      post :create
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(remote_address: "1.2.3.4")
+      )
 
-      expect(controller.company.audits.last.remote_address).to eq('1.2.3.4')
+      post :create
     end
 
     it "should record a UUID for the web request responsible for the change" do
       allow_any_instance_of(ActionDispatch::Request).to receive(:uuid).and_return("abc123")
       controller.send(:current_user=, user)
 
-      post :create
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(request_uuid: "abc123")
+      )
 
-      expect(controller.company.audits.last.request_uuid).to eq("abc123")
+      post :create
     end
 
     it "should call current_user after controller callbacks" do
@@ -88,11 +93,11 @@ describe AuditsController do
         controller.send(:current_user=, user)
       end
 
-      expect {
-        post :create
-      }.to change( Audited::Audit, :count )
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(user_id: user.id)
+      )
 
-      expect(controller.company.audits.last.user).to eq(user)
+      post :create
     end
   end
 
@@ -100,9 +105,9 @@ describe AuditsController do
     it "should not save blank audits" do
       controller.send(:current_user=, user)
 
-      expect {
-        put :update, Rails::VERSION::MAJOR == 4 ? {id: 123} : {params: {id: 123}}
-      }.to_not change( Audited::Audit, :count )
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+
+      put :update, Rails::VERSION::MAJOR == 4 ? {id: 123} : {params: {id: 123}}
     end
   end
 end

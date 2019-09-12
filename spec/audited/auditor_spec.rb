@@ -168,7 +168,13 @@ describe Audited::Auditor do
       begin
         Models::ActiveRecord::User.non_audited_columns += [:favourite_device]
 
-        expect(create_user.audits.first.audited_changes.keys.any? { |col| ['favourite_device', 'created_at', 'updated_at', 'password'].include?( col ) }).to eq(false)
+        expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+          hash_including(
+            audited_changes: hash_excluding('favourite_device', 'created_at', 'updated_at', 'password')
+          )
+        )
+
+        create_user
       ensure
         Models::ActiveRecord::User.non_audited_columns = previous
       end
@@ -187,10 +193,15 @@ describe Audited::Auditor do
         end
       end
 
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: { "password" => [nil, "password"] }
+        )
+      )
+
       user.password = "password"
       user.non_column_attr = "some value"
       user.save!
-      expect(user.audits.last.audited_changes.keys).to eq(%w{password})
     end
 
     it "should save attributes not specified in 'except' option" do
@@ -206,10 +217,15 @@ describe Audited::Auditor do
         end
       end
 
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: { "non_column_attr" => [nil, "some value"] }
+        )
+      )
+
       user.password = "password"
       user.non_column_attr = "some value"
       user.save!
-      expect(user.audits.last.audited_changes.keys).to eq(%w{non_column_attr})
     end
 
     if ActiveRecord::Base.connection.adapter_name == 'PostgreSQL'
@@ -225,10 +241,15 @@ describe Audited::Auditor do
           Audited::Audit.reset_column_information
           expect(Audited::Audit.columns_hash["audited_changes"].sql_type).to eq("json")
 
+          expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+            hash_including(
+              audited_changes: {"name" => [nil, "new name"]}
+            )
+          )
+
           user = Models::ActiveRecord::User.create
           user.name = "new name"
           user.save!
-          expect(user.audits.last.audited_changes).to eq({"name" => [nil, "new name"]})
         end
 
         it "should work if column type is 'jsonb'" do
@@ -236,10 +257,15 @@ describe Audited::Auditor do
           Audited::Audit.reset_column_information
           expect(Audited::Audit.columns_hash["audited_changes"].sql_type).to eq("jsonb")
 
+          expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+            hash_including(
+              audited_changes: {"name" => [nil, "new name"]}
+            )
+          )
+
           user = Models::ActiveRecord::User.create
           user.name = "new name"
           user.save!
-          expect(user.audits.last.audited_changes).to eq({"name" => [nil, "new name"]})
         end
       end
     end
@@ -268,45 +294,60 @@ describe Audited::Auditor do
   describe "on create" do
     let( :user ) { create_user status: :reliable, audit_comment: "Create" }
 
-    it "should change the audit count" do
-      expect {
-        user
-      }.to change( Audited::Audit, :count ).by(1)
-    end
-
     it "should create associated audit" do
-      expect(user.audits.count).to eq(1)
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call)
+      user
     end
 
     it "should set the action to create" do
-      expect(user.audits.first.action).to eq('create')
-      expect(Audited::Audit.creates.order(:id).last).to eq(user.audits.first)
-      expect(user.audits.creates.count).to eq(1)
-      expect(user.audits.updates.count).to eq(0)
-      expect(user.audits.destroys.count).to eq(0)
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          action: "create",
+        )
+      )
+
+      user
     end
 
-    it "should store all the audited attributes" do
-      expect(user.audits.first.audited_changes).to eq(user.audited_attributes)
+    it "should store all of the audited attributes" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: user.audited_attributes
+        )
+      )
+      create_user status: :reliable, audit_comment: "Create"
     end
 
     it "should store enum value" do
-      expect(user.audits.first.audited_changes["status"]).to eq(1)
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: hash_including("status" => 1)
+        )
+      )
+      user
     end
 
     it "should store comment" do
-      expect(user.audits.first.comment).to eq('Create')
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          comment: "Create"
+        )
+      )
+      user
     end
 
     it "should not audit an attribute which is excepted if specified on create or destroy" do
-      on_create_destroy_except_name = Models::ActiveRecord::OnCreateDestroyExceptName.create(name: 'Bart')
-      expect(on_create_destroy_except_name.audits.first.audited_changes.keys.any?{|col| ['name'].include? col}).to eq(false)
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: hash_excluding("name")
+        )
+      )
+      Models::ActiveRecord::OnCreateDestroyExceptName.create(name: 'Bart')
     end
 
     it "should not save an audit if only specified on update/destroy" do
-      expect {
-        Models::ActiveRecord::OnUpdateDestroy.create!( name: 'Bart' )
-      }.to_not change( Audited::Audit, :count )
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+      Models::ActiveRecord::OnUpdateDestroy.create!( name: 'Bart' )
     end
   end
 
@@ -316,71 +357,98 @@ describe Audited::Auditor do
     end
 
     it "should save an audit" do
-      expect {
-        @user.update_attribute(:name, "Someone")
-      }.to change( Audited::Audit, :count ).by(1)
-      expect {
-        @user.update_attribute(:name, "Someone else")
-      }.to change( Audited::Audit, :count ).by(1)
+      call_count = 0
+      allow_any_instance_of(Audited::Audit).to receive(:audit_job_call) { |args| call_count += 1 }
+
+      @user.update_attribute(:name, "Someone")
+      @user.update_attribute(:name, "Someone else")
+
+      expect(call_count).to eq 2
     end
 
     it "should set the action to 'update'" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          action: "update"
+        )
+      )
       @user.update_attributes name: 'Changed'
-      expect(@user.audits.last.action).to eq('update')
-      expect(Audited::Audit.updates.order(:id).last).to eq(@user.audits.last)
-      expect(@user.audits.updates.last).to eq(@user.audits.last)
     end
 
     it "should store the changed attributes" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: { 'name' => ['Brandon', 'Changed'] }
+        )
+      )
       @user.update_attributes name: 'Changed'
-      expect(@user.audits.last.audited_changes).to eq({ 'name' => ['Brandon', 'Changed'] })
     end
 
     it "should store changed enum values" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: hash_including("status" => [0, 1])
+        )
+      )
       @user.update_attributes status: 1
-      expect(@user.audits.last.audited_changes["status"]).to eq([0, 1])
     end
 
     it "should store audit comment" do
-      expect(@user.audits.last.comment).to eq('Update')
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          comment: "Update"
+        )
+      )
+      create_user( name: 'Brandon', status: :active, audit_comment: 'Update' )
     end
 
     it "should not save an audit if only specified on create/destroy" do
       on_create_destroy = Models::ActiveRecord::OnCreateDestroy.create( name: 'Bart' )
-      expect {
-        on_create_destroy.update_attributes name: 'Changed'
-      }.to_not change( Audited::Audit, :count )
+
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+
+      on_create_destroy.update_attributes name: 'Changed'
     end
 
     it "should not save an audit if the value doesn't change after type casting" do
       @user.update_attributes! logins: 0, activated: true
-      expect { @user.update_attribute :logins, '0' }.to_not change( Audited::Audit, :count )
-      expect { @user.update_attribute :activated, 1 }.to_not change( Audited::Audit, :count )
-      expect { @user.update_attribute :activated, '1' }.to_not change( Audited::Audit, :count )
+
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+
+      @user.update_attribute :logins, '0'
+      @user.update_attribute :activated, 1
+      @user.update_attribute :activated, '1'
     end
 
     it "should not save if the changed value is blank" do
       @user.update_attribute :username, nil
-      expect { @user.update_attribute :username, '' }.to_not change( Audited::Audit, :count )
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+      @user.update_attribute :username, ''
     end
 
     it "should save if the changed value is blank" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: { 'name' => ['Brandon', ''] }
+        )
+      )
       @user.update_attributes name: ''
-      expect(@user.audits.last.audited_changes).to eq({ 'name' => ['Brandon', ''] })
     end
 
     describe "with no dirty changes" do
       it "does not create an audit if the record is not changed" do
-        expect {
-          @user.save!
-        }.to_not change( Audited::Audit, :count )
+        expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+        @user.save!
       end
 
       it "creates an audit when an audit comment is present" do
-        expect {
-          @user.audit_comment = "Comment"
-          @user.save!
-        }.to change( Audited::Audit, :count )
+        expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+          hash_including(
+            comment: "Comment"
+          )
+        )
+        @user.audit_comment = "Comment"
+        @user.save!
       end
     end
   end
@@ -391,57 +459,60 @@ describe Audited::Auditor do
     end
 
     it "should save an audit" do
-      expect {
-        @user.destroy
-      }.to change( Audited::Audit, :count )
+      call_count = 0
+      allow_any_instance_of(Audited::Audit).to receive(:audit_job_call) { |args| call_count += 1 }
 
-      expect(@user.audits.size).to eq(2)
+      user = create_user(status: :active)
+      user.destroy
+
+      expect(call_count).to eq 2
     end
 
     it "should set the action to 'destroy'" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          action: "destroy"
+        )
+      )
       @user.destroy
-
-      expect(@user.audits.last.action).to eq('destroy')
-      expect(Audited::Audit.destroys.order(:id).last).to eq(@user.audits.last)
-      expect(@user.audits.destroys.last).to eq(@user.audits.last)
     end
 
     it "should store all of the audited attributes" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: @user.audited_attributes
+        )
+      )
       @user.destroy
-
-      expect(@user.audits.last.audited_changes).to eq(@user.audited_attributes)
     end
 
     it "should store enum value" do
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          audited_changes: hash_including("status" => 0)
+        )
+      )
       @user.destroy
-      expect(@user.audits.last.audited_changes["status"]).to eq(0)
-    end
-
-    it "should be able to reconstruct a destroyed record without history" do
-      Audited::Audit.delete_all
-      @user.destroy
-
-      revision = Audited::Audit.first.revision
-      expect(revision.name).to eq(@user.name)
     end
 
     it "should not save an audit if only specified on create/update" do
       on_create_update = Models::ActiveRecord::OnCreateUpdate.create!( name: 'Bart' )
 
-      expect {
-        on_create_update.destroy
-      }.to_not change( Audited::Audit, :count )
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+
+      on_create_update.destroy
     end
 
     it "should audit dependent destructions" do
       owner = Models::ActiveRecord::Owner.create!
+
+      call_count = 0
+      allow_any_instance_of(Audited::Audit).to receive(:audit_job_call) { |args| call_count += 1 }
+
       company = owner.companies.create!
+      owner.destroy
 
-      expect {
-        owner.destroy
-      }.to change( Audited::Audit, :count )
-
-      expect(company.audits.map { |a| a.action }).to eq(['create', 'destroy'])
+      expect(call_count).to eq(3)
     end
   end
 
@@ -449,23 +520,21 @@ describe Audited::Auditor do
     let(:user) { Models::ActiveRecord::User.new }
 
     it "should not audit on 'destroy'" do
-      expect {
-        user.destroy
-      }.to_not raise_error
-
-      expect( user.audits ).to be_empty
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+      user.destroy
     end
   end
 
-  describe "on destroy in trasaction" do
+  describe "on destroy in transaction" do
     let(:user) { create_user }
 
     it "should save an audit" do
-      expect {
-        user.transaction { user.destroy }
-      }.to change( Audited::Audit, :count )
+      call_count = 0
+      allow_any_instance_of(Audited::Audit).to receive(:audit_job_call) { call_count += 1 }
 
-      expect(user.audits.size).to eq(2)
+      user.transaction { user.destroy }
+
+      expect(call_count).to eq(2)
     end
   end
 
@@ -474,314 +543,48 @@ describe Audited::Auditor do
     let(:owned_company) { Models::ActiveRecord::OwnedCompany.create!(name: 'The auditors', owner: owner) }
 
     it "should record the associated object on create" do
-      expect(owned_company.audits.first.associated).to eq(owner)
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          associated_id: owner.id,
+          associated_type: owner.class.name,
+        )
+      )
+      owned_company
     end
 
     it "should store the associated object on update" do
+      owned_company
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          associated_id: owner.id,
+          associated_type: owner.class.name,
+        )
+      )
       owned_company.update_attribute(:name, 'The Auditors')
-      expect(owned_company.audits.last.associated).to eq(owner)
     end
 
     it "should store the associated object on destroy" do
+      owned_company
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(
+          associated_id: owner.id,
+          associated_type: owner.class.name,
+        )
+      )
       owned_company.destroy
-      expect(owned_company.audits.last.associated).to eq(owner)
-    end
-  end
-
-  describe "has associated audits" do
-    let!(:owner) { Models::ActiveRecord::Owner.create!(name: 'Models::ActiveRecord::Owner') }
-    let!(:owned_company) { Models::ActiveRecord::OwnedCompany.create!(name: 'The auditors', owner: owner) }
-
-    it "should list the associated audits" do
-      expect(owner.associated_audits.length).to eq(1)
-      expect(owner.associated_audits.first.auditable).to eq(owned_company)
-    end
-  end
-
-  describe "max_audits" do
-    it "should respect global setting" do
-      stub_global_max_audits(10) do
-        expect(Models::ActiveRecord::User.audited_options[:max_audits]).to eq(10)
-      end
-    end
-
-    it "should respect per model setting" do
-      stub_global_max_audits(10) do
-        expect(Models::ActiveRecord::MaxAuditsUser.audited_options[:max_audits]).to eq(5)
-      end
-    end
-
-    it "should delete old audits when keeped amount exceeded" do
-      stub_global_max_audits(2) do
-        user = create_versions(2)
-        user.update(name: 'John')
-        expect(user.audits.pluck(:version)).to eq([2, 3])
-      end
-    end
-
-    it "should not delete old audits when keeped amount not exceeded" do
-      stub_global_max_audits(3) do
-        user = create_versions(2)
-        user.update(name: 'John')
-        expect(user.audits.pluck(:version)).to eq([1, 2, 3])
-      end
-    end
-
-    it "should delete old extra audits after introducing limit" do
-      stub_global_max_audits(nil) do
-        user = Models::ActiveRecord::User.create!(name: 'Brandon', username: 'brandon')
-        user.update_attributes(name: 'Foobar')
-        user.update_attributes(name: 'Awesome', username: 'keepers')
-        user.update_attributes(activated: true)
-
-        Audited.max_audits = 3
-        Models::ActiveRecord::User.send(:normalize_audited_options)
-        user.update_attributes(favourite_device: 'Android Phone')
-        audits = user.audits
-
-        expect(audits.count).to eq(3)
-        expect(audits[0].audited_changes).to include({'name' => ['Foobar', 'Awesome'], 'username' => ['brandon', 'keepers']})
-        expect(audits[1].audited_changes).to eq({'activated' => [nil, true]})
-        expect(audits[2].audited_changes).to eq({'favourite_device' => [nil, 'Android Phone']})
-      end
-    end
-
-    it "should add comment line for combined audit" do
-      stub_global_max_audits(2) do
-        user = Models::ActiveRecord::User.create!(name: 'Foobar 1')
-        user.update(name: 'Foobar 2', audit_comment: 'First audit comment')
-        user.update(name: 'Foobar 3', audit_comment: 'Second audit comment')
-        expect(user.audits.first.comment).to match(/First audit comment.+is the result of multiple/m)
-      end
-    end
-
-    def stub_global_max_audits(max_audits)
-      previous_max_audits = Audited.max_audits
-      previous_user_audited_options = Models::ActiveRecord::User.audited_options.dup
-      begin
-        Audited.max_audits = max_audits
-        Models::ActiveRecord::User.send(:normalize_audited_options) # reloads audited_options
-        yield
-      ensure
-        Audited.max_audits = previous_max_audits
-        Models::ActiveRecord::User.audited_options = previous_user_audited_options
-      end
-    end
-  end
-
-  describe "revisions" do
-    let( :user ) { create_versions }
-
-    it "should return an Array of Users" do
-      expect(user.revisions).to be_a_kind_of( Array )
-      user.revisions.each { |version| expect(version).to be_a_kind_of Models::ActiveRecord::User }
-    end
-
-    it "should have one revision for a new record" do
-      expect(create_user.revisions.size).to eq(1)
-    end
-
-    it "should have one revision for each audit" do
-      expect(user.audits.size).to eql( user.revisions.size )
-    end
-
-    it "should set the attributes for each revision" do
-      u = Models::ActiveRecord::User.create(name: 'Brandon', username: 'brandon')
-      u.update_attributes name: 'Foobar'
-      u.update_attributes name: 'Awesome', username: 'keepers'
-
-      expect(u.revisions.size).to eql(3)
-
-      expect(u.revisions[0].name).to eql('Brandon')
-      expect(u.revisions[0].username).to eql('brandon')
-
-      expect(u.revisions[1].name).to eql('Foobar')
-      expect(u.revisions[1].username).to eql('brandon')
-
-      expect(u.revisions[2].name).to eql('Awesome')
-      expect(u.revisions[2].username).to eql('keepers')
-    end
-
-    it "access to only recent revisions" do
-      u = Models::ActiveRecord::User.create(name: 'Brandon', username: 'brandon')
-      u.update_attributes name: 'Foobar'
-      u.update_attributes name: 'Awesome', username: 'keepers'
-
-      expect(u.revisions(2).size).to eq(2)
-
-      expect(u.revisions(2)[0].name).to eq('Foobar')
-      expect(u.revisions(2)[0].username).to eq('brandon')
-
-      expect(u.revisions(2)[1].name).to eq('Awesome')
-      expect(u.revisions(2)[1].username).to eq('keepers')
-    end
-
-    it "should be empty if no audits exist" do
-      user.audits.delete_all
-      expect(user.revisions).to be_empty
-    end
-
-    it "should ignore attributes that have been deleted" do
-      user.audits.last.update_attributes audited_changes: {old_attribute: 'old value'}
-      expect { user.revisions }.to_not raise_error
-    end
-  end
-
-  describe "revisions" do
-    let( :user ) { create_versions(5) }
-
-    it "should maintain identity" do
-      expect(user.revision(1)).to eq(user)
-    end
-
-    it "should find the given revision" do
-      revision = user.revision(3)
-      expect(revision).to be_a_kind_of( Models::ActiveRecord::User )
-      expect(revision.audit_version).to eq(3)
-      expect(revision.name).to eq('Foobar 3')
-    end
-
-    it "should find the previous revision with :previous" do
-      revision = user.revision(:previous)
-      expect(revision.audit_version).to eq(4)
-      #expect(revision).to eq(user.revision(4))
-      expect(revision.attributes).to eq(user.revision(4).attributes)
-    end
-
-    it "should be able to get the previous revision repeatedly" do
-      previous = user.revision(:previous)
-      expect(previous.audit_version).to eq(4)
-      expect(previous.revision(:previous).audit_version).to eq(3)
-    end
-
-    it "should be able to set protected attributes" do
-      u = Models::ActiveRecord::User.create(name: 'Brandon')
-      u.update_attribute :logins, 1
-      u.update_attribute :logins, 2
-
-      expect(u.revision(3).logins).to eq(2)
-      expect(u.revision(2).logins).to eq(1)
-      expect(u.revision(1).logins).to eq(0)
-    end
-
-    it "should set attributes directly" do
-      u = Models::ActiveRecord::User.create(name: '<Joe>')
-      expect(u.revision(1).name).to eq('&lt;Joe&gt;')
-    end
-
-    it "should set the attributes for each revision" do
-      u = Models::ActiveRecord::User.create(name: 'Brandon', username: 'brandon')
-      u.update_attributes name: 'Foobar'
-      u.update_attributes name: 'Awesome', username: 'keepers'
-
-      expect(u.revision(3).name).to eq('Awesome')
-      expect(u.revision(3).username).to eq('keepers')
-
-      expect(u.revision(2).name).to eq('Foobar')
-      expect(u.revision(2).username).to eq('brandon')
-
-      expect(u.revision(1).name).to eq('Brandon')
-      expect(u.revision(1).username).to eq('brandon')
-    end
-
-    it "should correctly restore revision with enum" do
-      u = Models::ActiveRecord::User.create(status: :active)
-      u.update_attribute(:status, :reliable)
-      u.update_attribute(:status, :banned)
-
-      expect(u.revision(3)).to be_banned
-      expect(u.revision(2)).to be_reliable
-      expect(u.revision(1)).to be_active
-    end
-
-    it "should be able to get time for first revision" do
-      suspended_at = Time.zone.now
-      u = Models::ActiveRecord::User.create(suspended_at: suspended_at)
-      expect(u.revision(1).suspended_at.to_s).to eq(suspended_at.to_s)
-    end
-
-    it "should not raise an error when no previous audits exist" do
-      user.audits.destroy_all
-      expect { user.revision(:previous) }.to_not raise_error
-    end
-
-    it "should mark revision's attributes as changed" do
-      expect(user.revision(1).name_changed?).to eq(true)
-    end
-
-    it "should record new audit when saving revision" do
-      expect {
-        user.revision(1).save!
-      }.to change( user.audits, :count ).by(1)
-    end
-
-    it "should re-insert destroyed records" do
-      user.destroy
-      expect {
-        user.revision(1).save!
-      }.to change( Models::ActiveRecord::User, :count ).by(1)
-    end
-
-    it "should return nil for values greater than the number of revisions" do
-      expect(user.revision(user.revisions.count + 1)).to be_nil
-    end
-  end
-
-  describe "revision_at" do
-    let( :user ) { create_user }
-
-    it "should find the latest revision before the given time" do
-      audit = user.audits.first
-      audit.created_at = 1.hour.ago
-      audit.save!
-      user.update_attributes name: 'updated'
-      expect(user.revision_at( 2.minutes.ago ).audit_version).to eq(1)
-    end
-
-    it "should be nil if given a time before audits" do
-      expect(user.revision_at( 1.week.ago )).to be_nil
-    end
-  end
-
-  describe "own_and_associated_audits" do
-    it "should return audits for self and associated audits" do
-      owner = Models::ActiveRecord::Owner.create!
-      company = owner.companies.create!
-      company.update!(name: "Collective Idea")
-
-      other_owner = Models::ActiveRecord::Owner.create!
-      other_owner.companies.create!
-
-      expect(owner.own_and_associated_audits).to match_array(owner.audits + company.audits)
-    end
-
-    it "should order audits by creation time" do
-      owner = Models::ActiveRecord::Owner.create!
-      first_audit = owner.audits.first
-      first_audit.update_column(:created_at, 1.year.ago)
-
-      company = owner.companies.create!
-      second_audit = company.audits.first
-      second_audit.update_column(:created_at, 1.month.ago)
-
-      company.update!(name: "Collective Idea")
-      third_audit = company.audits.last
-      expect(owner.own_and_associated_audits.to_a).to eq([third_audit, second_audit, first_audit])
     end
   end
 
   describe "without auditing" do
     it "should not save an audit when calling #save_without_auditing" do
-      expect {
-        u = Models::ActiveRecord::User.new(name: 'Brandon')
-        expect(u.save_without_auditing).to eq(true)
-      }.to_not change( Audited::Audit, :count )
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+      u = Models::ActiveRecord::User.new(name: 'Brandon')
+      expect(u.save_without_auditing).to eq(true)
     end
 
     it "should not save an audit inside of the #without_auditing block" do
-      expect {
-        Models::ActiveRecord::User.without_auditing { Models::ActiveRecord::User.create!( name: 'Brandon' ) }
-      }.to_not change( Audited::Audit, :count )
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+      Models::ActiveRecord::User.without_auditing { Models::ActiveRecord::User.create!( name: 'Brandon' ) }
     end
 
     it "should reset auditing status even it raises an exception" do
@@ -808,11 +611,14 @@ describe Audited::Auditor do
         expect(Models::ActiveRecord::User.auditing_enabled).to eq(true)
         Models::ActiveRecord::User.create!( name: 'Lisa' )
       end
+
+      call_count = 0
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call) { call_count += 1 }
+
       t1.join
       t2.join
 
-      expect(Models::ActiveRecord::User.find_by_name('Bart').audits.count).to eq(0)
-      expect(Models::ActiveRecord::User.find_by_name('Lisa').audits.count).to eq(1)
+      expect(call_count).to eq(1)
     end
 
     it "should not save an audit when auditing is globally disabled" do
@@ -820,14 +626,18 @@ describe Audited::Auditor do
       Audited.auditing_enabled = false
       expect(Models::ActiveRecord::User.auditing_enabled).to eq(false)
 
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call).with(
+        hash_including(action: "create")
+      )
       user = create_user
-      expect(user.audits.count).to eq(0)
 
       Audited.auditing_enabled = true
       expect(Models::ActiveRecord::User.auditing_enabled).to eq(true)
 
+      expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+        hash_including(action: "update")
+      )
       user.update_attributes(name: 'Test')
-      expect(user.audits.count).to eq(1)
     end
   end
 
@@ -931,23 +741,29 @@ describe Audited::Auditor do
 
     it "should record user objects" do
       Models::ActiveRecord::Company.audit_as( user ) do
-        company = Models::ActiveRecord::Company.create name: 'The auditors'
-        company.update_attributes name: 'The Auditors'
+        call_count = 0
+        allow_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+          hash_including(user_id: user.id)
+        ) { call_count += 1 }
 
-        company.audits.each do |audit|
-          expect(audit.user).to eq(user)
-        end
+        company = Models::ActiveRecord::Company.create name: "The auditors"
+        company.update_attributes name: "The Auditors"
+
+        expect(call_count).to eq(2)
       end
     end
 
     it "should record usernames" do
       Models::ActiveRecord::Company.audit_as( user.name ) do
-        company = Models::ActiveRecord::Company.create name: 'The auditors'
-        company.update_attributes name: 'The Auditors'
+        call_count = 0
+        allow_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+          hash_including(username: user.name)
+        ) { call_count += 1 }
 
-        company.audits.each do |audit|
-          expect(audit.user).to eq(user.name)
-        end
+        company = Models::ActiveRecord::Company.create name: "The auditors"
+        company.update_attributes name: "The Auditors"
+
+        expect(call_count).to eq(2)
       end
     end
   end
@@ -962,25 +778,15 @@ describe Audited::Auditor do
     end
   end
 
-  describe "around_audit" do
-    let( :user ) { Models::ActiveRecord::UserWithAfterAudit.new }
-
-    it "should invoke around_audit callback on create" do
-      expect(user.around_attr).to be_nil
-      expect(user.save).to eq(true)
-      expect(user.around_attr).to eq(user.audits.last)
-    end
-  end
-
   describe "STI auditing" do
     it "should correctly disable auditing when using STI" do
       company = Models::ActiveRecord::Company::STICompany.create name: 'The auditors'
       expect(company.type).to eq("Models::ActiveRecord::Company::STICompany")
-      expect {
-        Models::ActiveRecord::Company.auditing_enabled = false
-        company.update_attributes name: 'STI auditors'
-        Models::ActiveRecord::Company.auditing_enabled = true
-      }.to_not change( Audited::Audit, :count )
+
+      Models::ActiveRecord::Company.auditing_enabled = false
+      expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call)
+      company.update_attributes name: 'STI auditors'
+      Models::ActiveRecord::Company.auditing_enabled = true
     end
   end
 end
