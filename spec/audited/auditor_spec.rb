@@ -587,6 +587,29 @@ describe Audited::Auditor do
       Models::ActiveRecord::User.without_auditing { Models::ActiveRecord::User.create!( name: 'Brandon' ) }
     end
 
+    context "auditing is globally disabled" do
+      it "should not leave model with forever disabled auditing after #without_auditing block" do
+        expect(Audited.auditing_enabled).to eq(true)
+        Audited.auditing_enabled = false
+
+        expect_any_instance_of(Audited::Audit).to_not receive(:audit_job_call).with(
+          hash_including(action: "create")
+        )
+        user = Models::ActiveRecord::User.without_auditing do
+          expect(Models::ActiveRecord::User.auditing_enabled).to eq(false)
+          create_user
+        end
+
+        Audited.auditing_enabled = true
+        expect(Models::ActiveRecord::User.auditing_enabled).to eq(true)
+
+        expect_any_instance_of(Audited::Audit).to receive(:audit_job_call).with(
+          hash_including(action: "update")
+        )
+        user.update_attributes(name: 'Test')
+      end
+    end
+
     it "should reset auditing status even it raises an exception" do
       Models::ActiveRecord::User.without_auditing { raise } rescue nil
       expect(Models::ActiveRecord::User.auditing_enabled).to eq(true)

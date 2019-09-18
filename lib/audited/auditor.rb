@@ -242,7 +242,7 @@ module Audited
       #   end
       #
       def without_auditing
-        auditing_was_enabled = auditing_enabled
+        auditing_was_enabled = table_auditing_enabled
         disable_auditing
         yield
       ensure
@@ -266,11 +266,15 @@ module Audited
       end
 
       def auditing_enabled
-        Audited.store.fetch("#{table_name}_auditing_enabled", true) && Audited.auditing_enabled
+        table_auditing_enabled && Audited.auditing_enabled
       end
 
       def auditing_enabled=(val)
         Audited.store["#{table_name}_auditing_enabled"] = val
+      end
+
+      def table_auditing_enabled
+        Audited.store.fetch("#{table_name}_auditing_enabled", true)
       end
 
       def default_ignored_attributes
